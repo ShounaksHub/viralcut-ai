@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 240" width="100%" height="100%">
+  <defs>
+    <linearGradient id="pBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0c0f1d"/>
+      <stop offset="100%" stop-color="#14192b"/>
+    </linearGradient>
+
+    <linearGradient id="card1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#1d4ed8" stop-opacity="0.05"/>
+    </linearGradient>
+    <linearGradient id="card2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a855f7" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#7e22ce" stop-opacity="0.05"/>
+    </linearGradient>
+    <linearGradient id="card3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ec4899" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#be185d" stop-opacity="0.05"/>
+    </linearGradient>
+    <linearGradient id="card4" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#047857" stop-opacity="0.05"/>
+    </linearGradient>
+
+    <linearGradient id="lineGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="50%" stop-color="#ec4899"/>
+      <stop offset="100%" stop-color="#10b981"/>
+    </linearGradient>
+
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="6" stdDeviation="6" flood-color="#000000" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+
+  <style>
+    .step-num { font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-weight: 800; font-size: 11px; fill: #94a3b8; letter-spacing: 1px; }
+    .step-title { font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-weight: 700; font-size: 15px; fill: #ffffff; }
+    .step-sub { font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-weight: 400; font-size: 12px; fill: #94a3b8; }
+    .icon { font-size: 24px; }
+    .arrow { fill: none; stroke: #475569; stroke-width: 2.5; stroke-dasharray: 4 4; }
+  </style>
+
+  <!-- Container -->
+  <rect width="1100" height="240" rx="16" fill="url(#pBg)" stroke="#1e293b" stroke-width="1.5"/>
+
+  <!-- Step 1: Ingest -->
+  <g transform="translate(30, 30)" filter="url(#shadow)">
+    <rect width="230" height="180" rx="14" fill="url(#card1)" stroke="#3b82f6" stroke-width="1.5"/>
+    <text x="20" y="32" class="step-num">STAGE 01</text>
+    <text x="180" y="40" class="icon">⚡</text>
+    <text x="20" y="65" class="step-title">Turbo Ingestion</text>
+    <text x="20" y="95" class="step-sub">• yt-dlp multi-fragment</text>
+    <text x="20" y="115" class="step-sub">• 8x parallel DASH/HLS</text>
+    <text x="20" y="135" class="step-sub">• Chunked file upload</text>
+    <text x="20" y="155" class="step-sub">• SHA-256 local cache</text>
+  </g>
+
+  <!-- Step 2: Transcribe -->
+  <g transform="translate(295, 30)" filter="url(#shadow)">
+    <rect width="230" height="180" rx="14" fill="url(#card2)" stroke="#a855f7" stroke-width="1.5"/>
+    <text x="20" y="32" class="step-num">STAGE 02</text>
+    <text x="180" y="40" class="icon">🎙️</text>
+    <text x="20" y="65" class="step-title">Whisper &amp; VAD</text>
+    <text x="20" y="95" class="step-sub">• Faster-Whisper local</text>
+    <text x="20" y="115" class="step-sub">• Word-level timestamps</text>
+    <text x="20" y="135" class="step-sub">• Silero VAD filtering</text>
+    <text x="20" y="155" class="step-sub">• Fast / Balanced modes</text>
+  </g>
+
+  <!-- Step 3: Analyze -->
+  <g transform="translate(560, 30)" filter="url(#shadow)">
+    <rect width="230" height="180" rx="14" fill="url(#card3)" stroke="#ec4899" stroke-width="1.5"/>
+    <text x="20" y="32" class="step-num">STAGE 03</text>
+    <text x="180" y="40" class="icon">🧠</text>
+    <text x="20" y="65" class="step-title">Gemini AI Mining</text>
+    <text x="20" y="95" class="step-sub">• Hook &amp; Payoff scoring</text>
+    <text x="20" y="115" class="step-sub">• 20–60s clip boundaries</text>
+    <text x="20" y="135" class="step-sub">• Non-overlapping dedupe</text>
+    <text x="20" y="155" class="step-sub">• Free-tier friendly</text>
+  </g>
+
+  <!-- Step 4: Render -->
+  <g transform="translate(825, 30)" filter="url(#shadow)">
+    <rect width="245" height="180" rx="14" fill="url(#card4)" stroke="#10b981" stroke-width="1.5"/>
+    <text x="20" y="32" class="step-num">STAGE 04</text>
+    <text x="195" y="40" class="icon">🎬</text>
+    <text x="20" y="65" class="step-title">Smart Crop &amp; Export</text>
+    <text x="20" y="95" class="step-sub">• OpenCV face centering</text>
+    <text x="20" y="115" class="step-sub">• 9:16 vertical 1080×1920</text>
+    <text x="20" y="135" class="step-sub">• Word-sync ASS captions</text>
+    <text x="20" y="155" class="step-sub">• 1-click ZIP export</text>
+  </g>
+
+  <!-- Connectors -->
+  <path d="M 260 120 L 295 120" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <path d="M 525 120 L 560 120" stroke="#a855f7" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <path d="M 790 120 L 825 120" stroke="#ec4899" stroke-width="2" marker-end="url(#arrowhead)"/>
+</svg>

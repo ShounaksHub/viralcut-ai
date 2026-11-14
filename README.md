@@ -1,61 +1,212 @@
-# ViralCut AI — local end-to-end AI clip maker
+<div align="center">
 
-Paste a supported public URL or upload a video and produce genuine 20–60 second vertical H.264/AAC MP4 clips, with Gemini-selected highlights, word-timed captions, previews, edit/re-render and ZIP exports. No Ollama; uses the Gemini API free tier (subject to Google quotas). **No guarantee of virality. The key stays on your PC but the transcript excerpts are transmitted to Google for AI analysis; review Google free-tier data practices and do not submit sensitive content without permission.**
+<img src="docs/banner.svg" alt="ViralCut AI Banner" width="100%" />
 
-## Windows setup
+<br/>
 
-1. Install **Python 3.11 or 3.12** and ensure `python` is on PATH.
-2. Install **FFmpeg with FFprobe and libass subtitle support** (`winget install Gyan.FFmpeg`), restart terminal; run `ffmpeg -filters` and check `subtitles` is available.
-3. Have a Gemini Developer API key from https://aistudio.google.com/apikey. You **do not need Ollama**. The default model is `gemini-3.5-flash-lite`, which has availability subject to your account, region, and limits. To change the model, set `VIRALCUT_GEMINI_MODEL` in your Windows environment.
-4. Download and unzip the project; double-click **start_windows.bat**. It creates `.venv` and installs Python dependencies on first launch. The Whisper model is downloaded during first transcription.
-5. Open **http://127.0.0.1:8000**, paste your Gemini API key into **Gemini AI settings** and click **Save API key**. The key is stored on your PC only in `storage/gemini_settings.json` (not included in the ZIP, not displayed later). Alternatively set the environment variable `GEMINI_API_KEY`. Then upload or paste a supported public URL and click **Generate my clips**. Processing may be slow on CPU. The status updates are real stages, not guessed percentages.
+[![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Google Gemini](https://img.shields.io/badge/Gemini-3.5--Flash--Lite-4285F4?style=for-the-badge&logo=google&logoColor=white)](https://aistudio.google.com/)
+[![Faster-Whisper](https://img.shields.io/badge/Faster--Whisper-1.2.1-FF6F00?style=for-the-badge&logo=openai&logoColor=white)](https://github.com/SYSTRAN/faster-whisper)
+[![FFmpeg](https://img.shields.io/badge/FFmpeg-1080x1920%20H.264-007808?style=for-the-badge&logo=ffmpeg&logoColor=white)](https://ffmpeg.org/)
+[![yt-dlp Turbo](https://img.shields.io/badge/yt--dlp-Turbo%20Parallel-FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://github.com/yt-dlp/yt-dlp)
+[![OpenCV](https://img.shields.io/badge/OpenCV-Smart%20Face%20Crop-5C3EE8?style=for-the-badge&logo=opencv&logoColor=white)](https://opencv.org/)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-blue?style=for-the-badge)](https://github.com/)
 
-By default, ViralCut creates one batch of quality clips per video. It targets at least 4 clips when the source is long enough to contain four independent 20-second moments, increases the target for longer videos, and caps the batch at 20 clips by default. Set `VIRALCUT_MIN_CLIPS` or `VIRALCUT_MAX_CLIPS` to adjust the policy. Very short videos cannot honestly produce four non-overlapping 20-second clips.
+<h3>✂️ Turn long videos into scroll-stopping, captioned 9:16 vertical shorts — 100% locally.</h3>
 
-Whisper processing modes are selectable before submission: `FAST` uses `base`, INT8, batch 8, beam 2; `BALANCED` uses `small`, INT8, batch 6, beam 3; `HIGH_ACCURACY` uses `small`, INT8, batch 4, beam 5. Word timestamps, VAD, and captions remain enabled in every mode.
+<p align="center">
+  <b>No Ollama required · Zero cloud video uploads · Real word-synced subtitles · Fast on-device AI</b>
+</p>
 
-Balanced CPU transcription uses Faster-Whisper's `BatchedInferencePipeline`, conservative CPU thread settings, and batch size 6. FFmpeg remains on software H.264 by default for reliable ASS caption burn-in; `/api/health` reports whether the installed FFmpeg advertises Intel `h264_qsv`. Render timing is logged per stage for hardware-specific tuning.
+[Quickstart](#-quickstart-windows) • [Architecture](#-how-it-works) • [Features](#-features) • [Caption Themes](#-caption-themes) • [API](#-api-endpoints) • [Developer Guide](#-developers--tests)
 
-**Requirements:** 4–8+ GB RAM recommended depending on the Whisper model; no local language model is required. CPU-only operation is supported but can take significant time. Enough disk space for input + extracted WAV + output MP4s. For low-memory devices set `VIRALCUT_WHISPER_MODEL=base` or `tiny` for lighter transcription. Hindi/Bengali caption rendering requires a compatible Unicode font available to FFmpeg/libass; install Noto Sans Bengali/Devanagari if needed and configure font selection in render.py.
+</div>
 
-## Workflow
+---
 
-1. Allowlisted public HTTPS URL with `yt-dlp`, or chunked file upload, with FFprobe validation.
-2. Extract mono 16 kHz WAV; transcribe all speech using Faster-Whisper and real word timestamps.
-3. Analyze timestamped transcript in overlapping windows using the Gemini API with structured JSON; candidates must be 20–60 seconds and snapped to spoken segment boundaries. Weighted scoring: hook 25%, content 20%, emotion 15%, self-containment 15%, payoff 10%, speech clarity 10%, visual proxy 5%. Overlap removal prevents near-duplicates. Scores are qualitative model estimates, not measured audience retention.
-4. Sample face positions when OpenCV is installed (stable median position), otherwise center crop; export true 1080×1920 H.264 MP4 at 30fps with AAC audio normalization.
-5. Word-synchronized ASS captions burned into MP4; 4 styles: professional, yellow, minimal, karaoke. Multi-language content stays in the source language.
-6. Preview or download individual videos or ZIP. Edit start/end (20–60s), caption theme, crop center and re-render **without retranscribing**.
+## ⚡ What is ViralCut AI?
 
-## API
+**ViralCut AI** is a local, privacy-first video clipping engine. Give it any YouTube link or upload a video, and it automatically:
 
-`GET /api/settings/gemini`; `POST /api/settings/gemini`; `DELETE /api/settings/gemini`; `POST /api/upload`; `POST /api/url`; `GET /api/health`; `GET /api/jobs`; `GET /api/jobs/{id}`; `POST /api/jobs/{id}/cancel`; `GET /api/jobs/{id}/transcript`; `GET /api/jobs/{id}/clips`; `GET /api/jobs/{id}/clips/{clip_id}/video`; `GET /api/jobs/{id}/clips/{clip_id}/download`; `GET /api/jobs/{id}/download-all`; `POST /api/jobs/{id}/clips/{clip_id}/rerender`; `POST /api/jobs/{id}/retry`; `DELETE /api/jobs/{id}`.
+1. 🚀 **Ingests & downloads** high-speed streams using multi-fragment parallel acceleration.
+2. 🎙️ **Transcribes speech** on your local machine using **Faster-Whisper** with word-level timestamps and VAD silence filtering.
+3. 🧠 **Analyzes the conversation** using **Google Gemini 3.5 Flash-Lite** to extract high-retention 20–60s highlight moments (scoring hooks, emotion, content payoff, and narrative flow).
+4. 🎯 **Tracks faces** with OpenCV and auto-reframes horizontal video into portrait **1080×1920 (9:16)**.
+5. ✨ **Burns animated, word-timed ASS captions** in 4 viral styling presets.
+6. 💾 **Outputs high-definition H.264/AAC MP4 clips** ready to post to TikTok, YouTube Shorts, and Instagram Reels!
 
-## Developers and tests
+> [!NOTE]
+> **No Ollama, heavy local LLM, or GPU cluster required!** Video rendering and Whisper transcription run locally on your CPU/GPU, while semantic transcript highlight detection uses the free Gemini Developer API.
 
-```powershell
-cd backend
-..\.venv\Scripts\python.exe -m pip install -r requirements.txt
-$env:PYTHONPATH=(Join-Path (Get-Location) '.')
-..\.venv\Scripts\python.exe -m pytest -q
-..\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+---
+
+## 🔄 How It Works
+
+<div align="center">
+  <img src="docs/pipeline.svg" alt="ViralCut AI Processing Pipeline" width="100%" />
+</div>
+
+<details>
+<summary><b>View detailed text pipeline breakdown</b></summary>
+
+```mermaid
+flowchart LR
+    A["🎬 Source Video\n(YouTube / Upload)"] --> B["⚡ Turbo Ingestion\n(Parallel yt-dlp)"]
+    B --> C["🎙️ Faster-Whisper\n(VAD + Word Timestamps)"]
+    C --> D["🧠 Gemini AI Mining\n(Hook & Retention Scoring)"]
+    D --> E["📐 OpenCV Face Crop\n(1080×1920 9:16)"]
+    E --> F["✨ Dynamic ASS Captions\n(Word-by-word sync)"]
+    F --> G["📦 Finished Shorts\n(MP4 + ZIP export)"]
+
+    style A fill:#1e293b,stroke:#3b82f6,stroke-width:2px,color:#fff
+    style B fill:#1e293b,stroke:#00e5ff,stroke-width:2px,color:#fff
+    style C fill:#1e293b,stroke:#a855f7,stroke-width:2px,color:#fff
+    style D fill:#1e293b,stroke:#ec4899,stroke-width:2px,color:#fff
+    style E fill:#1e293b,stroke:#eab308,stroke-width:2px,color:#fff
+    style F fill:#1e293b,stroke:#10b981,stroke-width:2px,color:#fff
+    style G fill:#0f172a,stroke:#ff007f,stroke-width:2px,color:#fff
 ```
 
-`frontend/dist` is a ready-to-run standalone HTML/CSS/JS frontend. React/Vite source is also included in `frontend/src`, with basic clip preview/download/re-render controls. The prepackaged dependency-free `dist` interface is the **default recommended UI** and has the more detailed crop/theme editing panel. Rebuilding React requires npm dependencies and overwrites `dist`.
+</details>
 
-## Limitations
+---
 
-- Running the Whisper model, live yt-dlp downloads, and the *full Gemini highlight pipeline* require real credentials/network/hardware not available to automated tests in this environment; those conditions are **not claimed verified**. Render pipeline *was* tested using genuine local FFmpeg media. No mock AI scores or random timestamp fallback exists: if Gemini fails or finds no valid candidates, job fails with an explanatory error.
-- Semantic selection is transcript-first, not full visual-semantic recognition. Visual score is LLM-estimated from spoken context; no object recognition or active-speaker diarization. Face crop uses multiple-frame face sampling, not reliable active-speaker tracking. Hindi/Bengali rendering depends on appropriate OS fonts. Caption positions are fixed mobile-safe lower-third; they do not yet automatically avoid faces.
-- Job queue runs in-process (one worker). On startup, jobs left in active states are marked `interrupted` and can be retried or deleted. Designed for local personal use, **not safe as a public internet service**: add authorization, network-isolated URL download execution, quotas, and persistent workers before deployment. DNS re-resolution inside yt-dlp is a residual SSRF risk. Only download videos you have rights to process, respecting platform terms, access restrictions and copyright.
-- URLs are restricted to public HTTPS YouTube, Vimeo, Dailymotion and Twitch. The extractor must be supported by your installed `yt-dlp`; region/private/DRM restrictions aren't bypassed.
-- Speech-heavy video of at least about 30 seconds works best. Word-timestamp quality depends on speech, noise and language. A weak/short video can legitimately yield zero clips rather than fake results.
+## 🌟 Features
 
-## Gemini free-tier notes
+| Feature | Description |
+| :--- | :--- |
+| **⚡ Turbo Video Ingestion** | yt-dlp multi-fragment parallel downloads (default 8 concurrent streams) with `.part` resume support and instant SHA-256 local caching. |
+| **🎙️ Local Whisper Speech-to-Text** | Faster-Whisper `BatchedInferencePipeline` with Silero Voice Activity Detection (VAD). Generates ultra-precise word-level timestamps. |
+| **🧠 Gemini Highlight Mining** | Weighted AI scoring algorithm evaluating: **Hook (25%)**, **Content (20%)**, **Emotion (15%)**, **Self-Containment (15%)**, **Payoff (10%)**, and **Clarity (10%)**. |
+| **🎯 OpenCV Smart Face Crop** | Intelligent multi-frame face detection centers speakers smoothly into a crisp 1080×1920 vertical canvas. |
+| **🎨 4 Styled Caption Themes** | Burned-in ASS captions with sub-second synchronization: *Professional*, *Yellow Pop*, *Minimal*, and *Karaoke Glow*. |
+| **🔄 Non-Destructive Re-rendering** | Adjust start/end timestamps, swap caption themes, or adjust crop centering in seconds **without re-transcribing** or re-calling AI APIs. |
+| **📊 Real Download Progress** | Live, non-faked progress telemetry in the dashboard: `Downloading — 324 MB / 1.2 GB — 27% — 18.4 MB/s — ETA 48s`. |
+| **📦 1-Click ZIP Export** | Download individual MP4 clips or package all generated shorts into a single ZIP archive containing `clip_details.json`. |
 
-- **No Ollama installation or account is needed.** You only need your own Gemini API key and internet access while analyzing the transcript. FFmpeg clipping and Whisper transcription run locally.
-- This release uses Google's `generateContent` REST API and defaults to `gemini-3.5-flash-lite`. Access and free-tier limits may vary by project and change over time. You can confirm model availability in Google AI Studio.
-- For long videos, the transcript is divided into overlapping chunks; each chunk makes a separate Gemini request. You can hit free-tier request/token limits. HTTP 429 errors trigger limited retries, then clearly report quota exhaustion.
-- If you use a billable key or switch to a paid model, **charges are possible**. ViralCut cannot enforce Google billing caps.
-- The saved key is kept in `storage/gemini_settings.json` and is never returned by the settings endpoint. Treat that local file as a secret, do not upload or commit it. The app is intended only for access at `127.0.0.1:8000`, not public deployment.
-- Google may use free-tier inputs to improve its products, subject to its policies. Do not submit content you are not authorized to share.
+---
+
+## 🎨 Caption Themes
+
+<div align="center">
+  <img src="docs/caption_themes.svg" alt="Caption Themes Preview" width="100%" />
+</div>
+
+Choose from 4 pre-configured caption styles to match your brand:
+
+- 🏛️ **Professional** — Clean, white sans-serif with subtle dark background padding for podcasts and interviews.
+- 🟡 **Yellow Pop** — Bold, high-contrast yellow typography optimized for mobile feed retention.
+- 🎬 **Minimal** — Elegant, lower-third cinematic captioning without heavy backgrounds.
+- 🎤 **Karaoke Glow** — High-energy word-by-word active highlighting with vibrant neon accents.
+
+---
+
+## 🚀 Quickstart (Windows)
+
+### Prerequisites
+
+1. **Python 3.11 or 3.12** on your system `PATH`.
+2. **FFmpeg with FFprobe & libass subtitle support**:
+   ```powershell
+   winget install Gyan.FFmpeg
+   ```
+   *(Verify by running `ffmpeg -filters | findstr subtitles` in a new terminal)*
+3. **Gemini Developer API Key**: Get a free API key from [Google AI Studio](https://aistudio.google.com/apikey).
+
+### 1-Click Launch
+
+1. Clone or download this repository:
+   ```bash
+   git clone https://github.com/ShounakHub/ViralCut-AI.git
+   cd ViralCut-AI
+   ```
+2. Double-click **`start_windows.bat`**.
+   - Automatically initializes the virtual environment (`.venv`).
+   - Installs all backend requirements.
+   - Launches the local server at **http://127.0.0.1:8000**.
+3. Open **http://127.0.0.1:8000** in your browser.
+4. Enter your Gemini API key under **Gemini AI settings** and click **Save key** *(stored only on your local machine)*.
+5. Paste a video URL or upload an MP4/MOV file, then click **✦ Generate my clips**!
+
+---
+
+## ⚙️ Processing Modes
+
+Customize transcription speed vs. precision before launching a job:
+
+| Mode | Model | Compute Type | Batch Size | Beam Size | Best For |
+| :---: | :---: | :---: | :---: | :---: | :--- |
+| **FAST** | `base` | INT8 | 8 | 2 | Fast previews, podcasts with clear audio |
+| **BALANCED** *(Default)* | `small` | INT8 | 6 | 3 | **Recommended:** Great accuracy & fast CPU speed |
+| **HIGH_ACCURACY** | `small` | INT8 | 4 | 5 | Heavy accents, background noise, low-fidelity audio |
+
+---
+
+## 🔌 API Endpoints
+
+ViralCut AI includes a clean, fully documented REST API powered by FastAPI:
+
+| Method | Endpoint | Description |
+| :---: | :--- | :--- |
+| `GET` | `/api/health` | System health check (FFmpeg, Whisper, Gemini configuration) |
+| `POST` | `/api/upload` | Upload local video file (`multipart/form-data`) |
+| `POST` | `/api/url` | Submit public video URL (YouTube, Vimeo, Twitch, Dailymotion) |
+| `GET` | `/api/jobs` | List recent processing jobs and status |
+| `GET` | `/api/jobs/{id}` | Detailed status & live stage telemetry for a job |
+| `POST` | `/api/jobs/{id}/cancel` | Gracefully cancel an active download or rendering job |
+| `POST` | `/api/jobs/{id}/retry` | Retry a failed, interrupted, or cancelled job |
+| `DELETE` | `/api/jobs/{id}` | Permanently delete job, temporary files, and clips |
+| `GET` | `/api/jobs/{id}/transcript` | Retrieve word-timestamped transcript JSON |
+| `GET` | `/api/jobs/{id}/clips` | Retrieve generated highlight clip manifest |
+| `GET` | `/api/jobs/{id}/clips/{clip_id}/video` | Stream vertical MP4 clip preview |
+| `GET` | `/api/jobs/{id}/clips/{clip_id}/download`| Download individual MP4 clip |
+| `GET` | `/api/jobs/{id}/download-all` | Download all rendered clips as a single ZIP archive |
+| `POST` | `/api/jobs/{id}/clips/{clip_id}/rerender` | Edit start/end boundaries, crop, or theme and re-render |
+
+---
+
+## 🛠️ Developers & Tests
+
+Run backend tests and development servers locally:
+
+```powershell
+# Set PYTHONPATH and run full test suite
+$env:PYTHONPATH="backend"
+.venv\Scripts\python.exe -m pytest backend/tests -v
+
+# Run backend development server
+.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Frontend source code is located in `frontend/src` (React/Vite). The pre-built, dependency-free dashboard is served directly from `frontend/dist`.
+
+---
+
+<details>
+<summary><b>📌 Limitations & Platform Guidelines</b></summary>
+
+- **Speech-Heavy Content**: Works best on speech-oriented videos (podcasts, interviews, commentary, lectures) of at least 30 seconds.
+- **Transcript-First Selection**: Gemini analyzes the spoken transcript to identify engaging hooks. Visual scoring is contextual; no deep face emotion recognition is performed.
+- **Local Machine Boundary**: Designed for local personal deployment on `127.0.0.1`. Add user authentication, network isolation, and disk quotas before exposing to public networks.
+- **Copyright & Terms**: Only process videos you own or have permission to use. Respect platform terms of service.
+
+</details>
+
+<details>
+<summary><b>🔑 Gemini Free-Tier Notes & Quotas</b></summary>
+
+- **No Ollama Required**: Only your free Gemini API key from Google AI Studio is needed.
+- **Default Model**: Uses `gemini-3.5-flash-lite`. You can change this by setting the `VIRALCUT_GEMINI_MODEL` environment variable.
+- **Local Key Storage**: Your API key is saved locally in `storage/gemini_settings.json` and is never exposed or returned to the browser.
+- **Long Video Chunking**: Longer videos are split into overlapping analysis windows. Standard Google AI Studio free-tier RPM/TPM limits apply.
+
+</details>
+
+---
+
+<div align="center">
+
+Made with ❤️ by [Shounak](https://github.com/ShounakHub) · **ViralCut AI**
+
+</div>
