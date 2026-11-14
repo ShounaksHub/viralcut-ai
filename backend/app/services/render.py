@@ -1,0 +1,137 @@
+﻿"""Real FFmpeg vertical crop, ASS word-highlight captions, AAC/H264 export."""
+import json
+import math
+import re
+import subprocess
+from pathlib import Path
+from app.services.media import run, probe, MediaError
+
+THEMES={'professional','yellow','minimal','karaoke'}
+def ass_time(t):
+    t=max(0,float(t));cs=round(t*100)
+    return f'{cs//360000}:{cs//6000%60:02d}:{cs//100%60:02d}.{cs%100:02d}'
+def ass_escape(s):
+    return str(s).replace('\\','\\\\').replace('{','\\{').replace('}','\\}').replace('\n',' ')
+
+def build_ass(words,start,end,destination,theme='professional',font='Arial'):
+    if theme not in THEMES:raise ValueError('Unknown caption theme')
+    relevant=[w for w in words if float(w['end'])>start and float(w['start'])<end and w.get('text','').strip()]
+    header='''[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+WrapStyle: 2
+ScaledBorderAndShadow: yes
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,FONT,72,&H00FFFFFF,&H0000FFFF,&H00101010,&H80000000,-1,0,0,0,100,100,0,0,1,5,2,2,65,65,340,1
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+'''.replace('FONT',font)
+    lines=[]
+    # Group phrases by length and pauses; never show more than about 8 words.
+    groups=[];group=[]
+    for word in relevant:
+        if group and (len(group)>=6 or float(word['start'])-float(group[-1]['end'])>.65 or sum(len(x['text']) for x in group)>55):
+            groups.append(group);group=[]
+        group.append(word)
+    if group:groups.append(group)
+    for group in groups:
+        g_start=max(0,float(group[0]['start'])-start)
+        g_end=min(end-start,max(float(group[-1]['end'])-start,g_start+.12))
+        for i,w in enumerate(group):
+            t0=max(g_start,float(w['start'])-start)
+            t1=min(g_end,float(w['end'])-start)
+            if t1<=t0:continue
+            fragments=[]
+            for j,x in enumerate(group):
+                word=ass_escape(x['text'].strip())
+                if j==i and theme!='minimal':
+                    if theme=='karaoke':word='{\\c&H00FFFF&\\fscx112\\fscy112}'+word+'{\\r}'
+                    elif theme=='yellow':word='{\\c&H00FFFF&}'+word+'{\\r}'
+                    else:word='{\\c&H00D7FF&}'+word+'{\\r}'
+                fragments.append(word)
+            # One text event per word interval; avoids false synchrony and animations outside speech.
+            caption=' '.join(fragments)
+            if len(caption)>85:
+                middle=len(fragments)//2
+                caption=' '.join(fragments[:middle])+r'\N'+' '.join(fragments[middle:])
+            lines.append(f'Dialogue: 0,{ass_time(t0)},{ass_time(t1)},Default,,0,0,0,,{caption}')
+    destination.write_text(header+'\n'.join(lines)+'\n',encoding='utf-8-sig')
+    return destination
+
+def _face_center(source,start,length,width,height):
+    try:
+        import cv2
+        capture=cv2.VideoCapture(str(source))
+        classifier=cv2.CascadeClassifier(cv2.data.haarcascades+'haarcascade_frontalface_default.xml')
+        if classifier.empty():return None
+        centers=[]
+        for seconds in [start+length*p for p in (.15,.35,.55,.75,.9)]:
+            capture.set(cv2.CAP_PROP_POS_MSEC,max(0,seconds)*1000)
+            ret,frame=capture.read()
+            if not ret:continue
+            gray=cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
+            faces=classifier.detectMultiScale(gray,scaleFactor=1.15,minNeighbors=4)
+            if len(faces):
+                x,y,w,h=max(faces,key=lambda f:f[2]*f[3]);centers.append((x+w/2)*width/frame.shape[1])
+        capture.release()
+        return sorted(centers)[len(centers)//2] if centers else None
+    except (ImportError,Exception):return None
+
+def render(source,words,start,end,destination,theme='professional',crop_x=None,quality=20,face_track=True,
+           progress_callback=None, cancel_callback=None):
+    if not 20-0.01<=end-start<=60+0.01:raise ValueError('Clips must be between 20 and 60 seconds')
+    meta=probe(source);w=int(meta['width']);h=int(meta['height'])
+    if start<0 or end>meta['duration']+.1:raise ValueError('Clip timestamps outside source video')
+    if theme not in THEMES:raise ValueError('Invalid theme')
+    center=(w/2) if crop_x is None else max(0,min(1,float(crop_x)))*w
+    if crop_x is None and face_track and w/h>9/16:
+        face=_face_center(source,start,end-start,w,h)
+        if face is not None:center=face
+    crop_width=min(w,round(h*9/16))
+    x=max(0,min(w-crop_width,round(center-crop_width/2)))
+    # For non-wide inputs, crop height instead, preserving original aspect ratio.
+    if w/h < 9/16:
+        target_h=min(h,round(w*16/9));y=max(0,round((h-target_h)/2))
+        video_filter=f'crop={w}:{target_h}:0:{y},scale=1080:1920:flags=lanczos,setsar=1'
+    else:
+        video_filter=f'crop={crop_width}:{h}:{x}:0,scale=1080:1920:flags=lanczos,setsar=1'
+    ass=destination.with_suffix('.ass')
+    build_ass(words,start,end,ass,theme=theme)
+    # subtitles uses FFmpeg filtergraph path escaping (especially on Windows drive paths).
+    path=str(ass.resolve()).replace('\\','/').replace(':','\\:').replace("'",r"\'").replace('[',r'\[').replace(']',r'\]')
+    video_filter+=f",subtitles=filename='{path}'"
+    destination.parent.mkdir(parents=True,exist_ok=True)
+    args=['ffmpeg','-hide_banner','-loglevel','error','-nostats','-y','-ss',str(start),'-i',str(source),'-t',str(end-start),
+          '-vf',video_filter,'-c:v','libx264','-preset','veryfast','-crf',str(quality),'-pix_fmt','yuv420p',
+          '-r','30','-c:a','aac','-b:a','192k','-af','loudnorm=I=-16:TP=-1.5:LRA=11',
+          '-movflags','+faststart','-shortest','-progress','pipe:1',str(destination)]
+    try:
+        if progress_callback or cancel_callback:
+            proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            duration_ms = max(1.0, (end - start) * 1_000_000)
+            while True:
+                line = proc.stdout.readline() if proc.stdout else ''
+                if line:
+                    key, _, value = line.strip().partition('=')
+                    if key == 'out_time_ms' and progress_callback:
+                        progress_callback(min(99, round(float(value or 0) / duration_ms * 100, 1)))
+                    if cancel_callback and cancel_callback():
+                        proc.terminate()
+                        raise RuntimeError('Processing cancelled by user.')
+                elif proc.poll() is not None:
+                    break
+            stderr = proc.stderr.read() if proc.stderr else ''
+            if proc.returncode:
+                raise MediaError(stderr[-1500:] or 'FFmpeg failed')
+        else:
+            run(args,timeout=max(180,(end-start)*30))
+    except Exception:
+        destination.unlink(missing_ok=True)
+        raise
+    if not destination.is_file() or destination.stat().st_size<1000:raise MediaError('Render produced no valid clip')
+    output_meta=probe(destination)
+    if output_meta['width']!=1080 or output_meta['height']!=1920:raise MediaError('Unexpected output resolution')
+    return output_meta
+

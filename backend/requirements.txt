@@ -1,0 +1,13 @@
+fastapi>=0.115,<1
+uvicorn[standard]>=0.34,<1
+pydantic>=2,<3
+python-multipart>=0.0.20
+faster-whisper==1.2.1
+yt-dlp>=2025.1
+pytest>=8,<10
+# Starlette TestClient compatibility; httpx 0.28.x can hang with this stack on Windows.
+httpx>=0.27,<0.28
+opencv-python-headless>=4.9,<5
+
+# Faster-Whisper 1.2.1 currently requires the PyAV 18.x behavior used by this app.
+av==18.1.0

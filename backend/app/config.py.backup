@@ -1,0 +1,16 @@
+from pathlib import Path
+import os
+
+ROOT = Path(__file__).resolve().parents[2]
+STORAGE = Path(os.getenv('VIRALCUT_STORAGE', str(ROOT / 'storage'))).resolve()
+for folder in ('uploads', 'audio', 'transcripts', 'clips', 'temp'):
+    (STORAGE / folder).mkdir(parents=True, exist_ok=True)
+DB_PATH = STORAGE / 'jobs.sqlite3'
+MAX_UPLOAD_GB = float(os.getenv('VIRALCUT_MAX_UPLOAD_GB', '8'))
+WHISPER_MODEL = os.getenv('VIRALCUT_WHISPER_MODEL', 'small')
+WHISPER_DEVICE = os.getenv('VIRALCUT_WHISPER_DEVICE', 'auto')
+WHISPER_COMPUTE = os.getenv('VIRALCUT_WHISPER_COMPUTE', 'default')
+GEMINI_MODEL = 'gemini-3.5-flash-lite'
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '').strip()
+GEMINI_SETTINGS = STORAGE / 'gemini_settings.json'
+ALLOWED_EXTENSIONS = {'.mp4', '.mov', '.mkv', '.avi', '.webm', '.m4v', '.mpeg', '.mpg'}
