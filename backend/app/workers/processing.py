@@ -7,7 +7,9 @@ import time
 from app import database as db
 from app.config import STORAGE, get_gemini_model
 from app.services.media import probe, extract_audio
-from app.services.downloader import download
+from app.services.downloader import (
+    download, DownloadCancelled, get_cached_download, save_to_download_cache
+)
 from app.services.transcription import transcribe
 from app.services.highlights import select_clips, desired_clip_count
 from app.services.render import render
@@ -43,22 +45,83 @@ def process_job(job_id, count=None, theme='professional'):
         db.update(job_id, worker_token=uuid.uuid4().hex, cancel_requested=0, error=None)
         workspace = STORAGE / 'temp' / job_id
         workspace.mkdir(parents=True, exist_ok=True)
-        if job['source_type'] == 'url' and not job['filename']:
-            _stage(job_id, 'downloading', 'Downloading video', 0)
-            def download_progress(pct):
-                current = db.get(job_id)
-                if not current or current.get('cancel_requested'):
-                    return False
-                db.heartbeat(job_id, progress=pct)
-                return True
-            source = download(job['source_url'], workspace, progress=download_progress)
-            dest = STORAGE / 'uploads' / (job_id + source.suffix.lower())
-            shutil.copy2(source, dest)
-            source = dest
-            db.update(job_id, filename=source.name)
+        if job['source_type'] == 'url':
+            source = None
+            # 1. On retry, verify if existing uploaded source file is valid
+            if job.get('filename'):
+                existing_candidate = STORAGE / 'uploads' / job['filename']
+                if existing_candidate.is_file() and existing_candidate.stat().st_size > 0:
+                    try:
+                        probe(existing_candidate)
+                        source = existing_candidate
+                        logger.info('Reusing valid downloaded video for job %s: %s', job_id, source)
+                    except Exception:
+                        logger.warning('Existing file for job %s was invalid, re-downloading', job_id)
+                        existing_candidate.unlink(missing_ok=True)
+                        db.update(job_id, filename=None)
+
+            # 2. Check persistent URL cache
+            if not source and job.get('source_url'):
+                cached = get_cached_download(job['source_url'])
+                if cached and cached.is_file() and cached.stat().st_size > 0:
+                    try:
+                        probe(cached)
+                        dest = STORAGE / 'uploads' / (job_id + cached.suffix.lower())
+                        shutil.copy2(cached, dest)
+                        source = dest
+                        db.update(job_id, filename=source.name)
+                        logger.info('Cache hit for job %s from URL cache: %s', job_id, cached)
+                    except Exception:
+                        cached.unlink(missing_ok=True)
+
+            # 3. Check other completed jobs with the same URL
+            if not source and job.get('source_url'):
+                for other in db.list_jobs():
+                    if other.get('id') != job_id and other.get('source_url') == job['source_url'] and other.get('filename'):
+                        other_path = STORAGE / 'uploads' / other['filename']
+                        if other_path.is_file() and other_path.stat().st_size > 0:
+                            try:
+                                probe(other_path)
+                                dest = STORAGE / 'uploads' / (job_id + other_path.suffix.lower())
+                                shutil.copy2(other_path, dest)
+                                save_to_download_cache(job['source_url'], dest)
+                                source = dest
+                                db.update(job_id, filename=source.name)
+                                logger.info('Reused valid source from job %s for job %s', other['id'], job_id)
+                                break
+                            except Exception:
+                                pass
+
+            # 4. If no valid cached source exists, perform optimized download
+            if not source:
+                _stage(job_id, 'downloading', 'Connecting to video source...', 0)
+                last_db_heartbeat = 0.0
+
+                def download_progress(pct, stage_text=None):
+                    nonlocal last_db_heartbeat
+                    current = db.get(job_id)
+                    if not current or current.get('cancel_requested'):
+                        return False
+                    now = time.perf_counter()
+                    # Throttle DB writes to ~3-4 times per second to prevent sqlite lock contention
+                    if now - last_db_heartbeat >= 0.25 or pct == 100.0 or last_db_heartbeat == 0.0:
+                        last_db_heartbeat = now
+                        if stage_text:
+                            db.heartbeat(job_id, stage=stage_text, progress=pct)
+                        else:
+                            db.heartbeat(job_id, progress=pct)
+                    return True
+
+                downloaded = download(job['source_url'], workspace, progress=download_progress)
+                probe(downloaded)
+                dest = STORAGE / 'uploads' / (job_id + downloaded.suffix.lower())
+                shutil.copy2(downloaded, dest)
+                save_to_download_cache(job['source_url'], dest)
+                source = dest
+                db.update(job_id, filename=source.name)
         else:
             source = STORAGE / 'uploads' / job['filename']
-        if not source.is_file():
+        if not source or not source.is_file():
             raise RuntimeError('Original video was not found')
 
         _stage(job_id, 'extracting_audio', 'Inspecting video')
@@ -145,13 +208,14 @@ def process_job(job_id, count=None, theme='professional'):
                   worker_token=None, cancel_requested=0, error=None)
         timings['total'] = round(time.perf_counter() - total_started, 3)
         logger.info('Job %s performance timings: %s', job_id, timings)
-    except JobCancelled:
+    except (JobCancelled, DownloadCancelled):
         logger.info('Job %s cancelled', job_id)
+        db.update(job_id, status='cancelled', stage='Cancelled by user', progress=None, error=None, worker_token=None)
     except Exception as exc:
         logger.exception('Job %s failed', job_id)
         current = db.get(job_id)
         if current:
-            if current.get('cancel_requested'):
+            if current.get('cancel_requested') or 'cancelled by user' in str(exc).lower():
                 db.update(job_id, status='cancelled', stage='Cancelled by user', progress=None, error=None, worker_token=None)
             else:
                 db.update(job_id, status='failed', stage='Failed', progress=None, error=str(exc)[:1200], worker_token=None)

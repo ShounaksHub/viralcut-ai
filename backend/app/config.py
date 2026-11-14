@@ -1,14 +1,36 @@
-﻿from pathlib import Path
+from pathlib import Path
 import os
 
 ROOT = Path(__file__).resolve().parents[2]
 STORAGE = Path(os.getenv('VIRALCUT_STORAGE', str(ROOT / 'storage'))).resolve()
-for folder in ('uploads', 'audio', 'transcripts', 'clips', 'temp'):
+for folder in ('uploads', 'audio', 'transcripts', 'clips', 'temp', 'cache'):
     (STORAGE / folder).mkdir(parents=True, exist_ok=True)
 DB_PATH = STORAGE / 'jobs.sqlite3'
 MAX_UPLOAD_GB = float(os.getenv('VIRALCUT_MAX_UPLOAD_GB', '8'))
 MIN_CLIPS_PER_JOB = int(os.getenv('VIRALCUT_MIN_CLIPS', '4'))
 MAX_CLIPS_PER_JOB = int(os.getenv('VIRALCUT_MAX_CLIPS', '20'))
+
+DEFAULT_DOWNLOAD_FRAGMENTS = 8
+def get_download_fragments():
+    raw = os.getenv('VIRALCUT_DOWNLOAD_FRAGMENTS', str(DEFAULT_DOWNLOAD_FRAGMENTS)).strip()
+    try:
+        val = int(raw)
+        if 1 <= val <= 16:
+            return val
+    except (ValueError, TypeError):
+        pass
+    return DEFAULT_DOWNLOAD_FRAGMENTS
+
+DEFAULT_THROTTLED_RATE = 100 * 1024  # 100 KiB/s
+def get_throttled_rate():
+    raw = os.getenv('VIRALCUT_THROTTLED_RATE', str(DEFAULT_THROTTLED_RATE)).strip()
+    try:
+        val = int(raw)
+        if val > 0:
+            return val
+    except (ValueError, TypeError):
+        pass
+    return DEFAULT_THROTTLED_RATE
 WHISPER_MODE = os.getenv('VIRALCUT_WHISPER_MODE', 'BALANCED').upper()
 WHISPER_MODEL = os.getenv('VIRALCUT_WHISPER_MODEL', 'small')
 WHISPER_DEVICE = os.getenv('VIRALCUT_WHISPER_DEVICE', 'cpu').lower()
