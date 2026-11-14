@@ -1,5 +1,6 @@
 'use strict';
 const $=id=>document.getElementById(id), ACTIVE=new Set(['queued','downloading','extracting_audio','transcribing','analyzing','selecting_clips','rendering']);
+const processingMode=()=>($('processingMode')?.value||'BALANCED');
 let mode='upload',selectedFile=null,uploading=false,selectedJob=null;
 const error=message=>{$('error').textContent=message||'';$('error').hidden=!message};
 const chooseMode=v=>{mode=v;$('uploadSection').hidden=v!=='upload';$('urlSection').hidden=v!=='url';$('uploadTab').classList.toggle('selected',v==='upload');$('urlTab').classList.toggle('selected',v==='url');error('')};

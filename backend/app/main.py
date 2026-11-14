@@ -5,13 +5,13 @@ import re
 import uuid
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
-from fastapi import FastAPI, UploadFile, File, HTTPException, Request
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from app import database as db
-from app.config import STORAGE, MAX_UPLOAD_GB, ALLOWED_EXTENSIONS, get_gemini_model
+from app.config import STORAGE, MAX_UPLOAD_GB, ALLOWED_EXTENSIONS, get_gemini_model, WHISPER_PRESETS
 from app.services.downloader import validate_url, DownloadError
-from app.services.media import probe, MediaError
+from app.services.media import probe, MediaError, qsv_available
 from app.workers.processing import process_job, load_manifest, save_manifest
 from app.services.render import render, THEMES
 import io, zipfile
@@ -75,11 +75,16 @@ def health():
     ffprobe = bool(shutil.which('ffprobe'))
     return {'status': 'ok', 'ready': ffmpeg and ffprobe, 'phase': 'complete-pipeline',
             'python': __import__('sys').version.split()[0], 'ffmpeg': ffmpeg, 'ffprobe': ffprobe,
-            'whisper': runtime_config(detect_gpu=False), 'gemini_configured': bool(get_key()), 'gemini_model': get_gemini_model(),
+            'whisper': runtime_config(detect_gpu=False), 'whisper_presets': WHISPER_PRESETS,
+            'intel_qsv_encoder_advertised': qsv_available(),
+            'gemini_configured': bool(get_key()), 'gemini_model': get_gemini_model(),
             'database': db.DB_PATH.exists(), 'storage_writable': STORAGE.exists()}
 
 @app.post('/api/upload', status_code=202)
-async def upload_video(file: UploadFile = File(...)):
+async def upload_video(file: UploadFile = File(...), processing_mode: str = Form('BALANCED')):
+    processing_mode = processing_mode.upper()
+    if processing_mode not in WHISPER_PRESETS:
+        raise HTTPException(400, 'Invalid processing mode. Choose FAST, BALANCED, or HIGH_ACCURACY.')
     ext = Path(file.filename or '').suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(400, 'Unsupported extension. Upload MP4, MOV, MKV, AVI, WEBM or MPEG.')
@@ -100,7 +105,7 @@ async def upload_video(file: UploadFile = File(...)):
             probe(destination)
         except MediaError as exc:
             raise HTTPException(400, f'Invalid/corrupt video: {exc}') from exc
-        db.insert(job_id, 'upload', filename=destination.name)
+        db.insert(job_id, 'upload', filename=destination.name, processing_mode=processing_mode)
         asyncio.get_running_loop().run_in_executor(executor, process_job, job_id)
         return {'job_id': job_id, 'status': 'queued'}
     except Exception:
@@ -111,9 +116,13 @@ async def upload_video(file: UploadFile = File(...)):
 
 class UrlSubmission(BaseModel):
     url: str
+    processing_mode: str = 'BALANCED'
 
 @app.post('/api/url', status_code=202)
 def submit_url(body: UrlSubmission):
+    processing_mode = body.processing_mode.upper()
+    if processing_mode not in WHISPER_PRESETS:
+        raise HTTPException(400, 'Invalid processing mode. Choose FAST, BALANCED, or HIGH_ACCURACY.')
     try:
         validate_url(body.url)
     except DownloadError as exc:
@@ -123,7 +132,7 @@ def submit_url(body: UrlSubmission):
         if job['source_url'] == canonical and job['status'] in (*db.ACTIVE_STATES, 'completed'):
             return {'job_id': job['id'], 'status': job['status'], 'duplicate': True}
     job_id = uuid.uuid4().hex
-    db.insert(job_id, 'url', source_url=canonical)
+    db.insert(job_id, 'url', source_url=canonical, processing_mode=processing_mode)
     executor.submit(process_job, job_id)
     return {'job_id': job_id, 'status': 'queued'}
 

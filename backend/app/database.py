@@ -23,12 +23,14 @@ def connection():
         filename TEXT, metadata TEXT, transcript_path TEXT,
         error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
         cancel_requested INTEGER NOT NULL DEFAULT 0,
-        worker_token TEXT, heartbeat_at TEXT)''')
+        worker_token TEXT, heartbeat_at TEXT,
+        processing_mode TEXT NOT NULL DEFAULT 'BALANCED')''')
         columns = {row['name'] for row in conn.execute('PRAGMA table_info(jobs)')}
         for name, definition in {
         'cancel_requested': 'INTEGER NOT NULL DEFAULT 0',
         'worker_token': 'TEXT',
         'heartbeat_at': 'TEXT',
+        'processing_mode': "TEXT NOT NULL DEFAULT 'BALANCED'",
         }.items():
             if name not in columns:
                 conn.execute(f'ALTER TABLE jobs ADD COLUMN {name} {definition}')
@@ -42,11 +44,11 @@ def connection():
     finally:
         conn.close()
 
-def insert(job_id, kind, source_url=None, filename=None):
+def insert(job_id, kind, source_url=None, filename=None, processing_mode='BALANCED'):
     now = utc_now()
     with connection() as conn:
-        conn.execute('INSERT INTO jobs (id, source_type, source_url, status, stage, progress, filename, created_at, updated_at, heartbeat_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
-                     (job_id, kind, source_url, 'queued', 'Queued', None, filename, now, now, now))
+        conn.execute('INSERT INTO jobs (id, source_type, source_url, status, stage, progress, filename, created_at, updated_at, heartbeat_at, processing_mode) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                     (job_id, kind, source_url, 'queued', 'Queued', None, filename, now, now, now, processing_mode.upper()))
 
 def update(job_id, **values):
     if not values:

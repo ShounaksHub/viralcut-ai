@@ -12,6 +12,10 @@ Paste a supported public URL or upload a video and produce genuine 20–60 secon
 
 By default, ViralCut creates one batch of quality clips per video. It targets at least 4 clips when the source is long enough to contain four independent 20-second moments, increases the target for longer videos, and caps the batch at 20 clips by default. Set `VIRALCUT_MIN_CLIPS` or `VIRALCUT_MAX_CLIPS` to adjust the policy. Very short videos cannot honestly produce four non-overlapping 20-second clips.
 
+Whisper processing modes are selectable before submission: `FAST` uses `base`, INT8, batch 8, beam 2; `BALANCED` uses `small`, INT8, batch 6, beam 3; `HIGH_ACCURACY` uses `small`, INT8, batch 4, beam 5. Word timestamps, VAD, and captions remain enabled in every mode.
+
+Balanced CPU transcription uses Faster-Whisper's `BatchedInferencePipeline`, conservative CPU thread settings, and batch size 6. FFmpeg remains on software H.264 by default for reliable ASS caption burn-in; `/api/health` reports whether the installed FFmpeg advertises Intel `h264_qsv`. Render timing is logged per stage for hardware-specific tuning.
+
 **Requirements:** 4–8+ GB RAM recommended depending on the Whisper model; no local language model is required. CPU-only operation is supported but can take significant time. Enough disk space for input + extracted WAV + output MP4s. For low-memory devices set `VIRALCUT_WHISPER_MODEL=base` or `tiny` for lighter transcription. Hindi/Bengali caption rendering requires a compatible Unicode font available to FFmpeg/libass; install Noto Sans Bengali/Devanagari if needed and configure font selection in render.py.
 
 ## Workflow

@@ -1,9 +1,24 @@
 import json
 import subprocess
+import shutil
 from pathlib import Path
 
 class MediaError(ValueError):
     pass
+
+def ffmpeg_encoder_available(encoder):
+    """Check encoder advertisement without assuming hardware initialization works."""
+    if not shutil.which('ffmpeg'):
+        return False
+    try:
+        result = subprocess.run(['ffmpeg', '-hide_banner', '-encoders'], text=True,
+                                capture_output=True, timeout=15, check=True)
+        return encoder in result.stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+def qsv_available():
+    return ffmpeg_encoder_available('h264_qsv')
 
 def run(args, timeout=None):
     try:

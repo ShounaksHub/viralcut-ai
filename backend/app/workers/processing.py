@@ -3,6 +3,7 @@ import logging
 import shutil
 import uuid
 import hashlib
+import time
 from app import database as db
 from app.config import STORAGE, get_gemini_model
 from app.services.media import probe, extract_audio
@@ -31,6 +32,8 @@ def _stage(job_id, status, label, progress=None, **extra):
 
 def process_job(job_id, count=None, theme='professional'):
     try:
+        timings = {}
+        total_started = time.perf_counter()
         job = db.get(job_id)
         if not job:
             raise RuntimeError('Job not found')
@@ -69,11 +72,14 @@ def process_job(job_id, count=None, theme='professional'):
             raise RuntimeError('The source video is shorter than the 20-second minimum clip duration.')
         wav = STORAGE / 'audio' / f'{job_id}.wav'
         _stage(job_id, 'extracting_audio', 'Extracting audio')
+        audio_started = time.perf_counter()
         if not wav.exists():
             extract_audio(source, wav)
+        timings['audio_extraction'] = round(time.perf_counter() - audio_started, 3)
 
         transcript_path = STORAGE / 'transcripts' / f'{job_id}.json'
         _stage(job_id, 'transcribing', 'Transcribing audio', 0)
+        whisper_started = time.perf_counter()
         if not transcript_path.exists():
             def whisper_progress(pct, done, total):
                 if db.get(job_id).get('cancel_requested'):
@@ -81,10 +87,12 @@ def process_job(job_id, count=None, theme='professional'):
                 done_m, done_s = divmod(int(done), 60)
                 total_m, total_s = divmod(int(total), 60)
                 db.heartbeat(job_id, stage=f'Transcribing: {done_m}:{done_s:02d} / {total_m}:{total_s:02d}', progress=pct)
-            result = transcribe(wav, progress_callback=whisper_progress)
+            result = transcribe(wav, progress_callback=whisper_progress,
+                                mode=job.get('processing_mode', 'BALANCED'))
             transcript_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
         else:
             result = json.loads(transcript_path.read_text(encoding='utf-8'))
+        timings['whisper'] = round(time.perf_counter() - whisper_started, 3)
         db.update(job_id, transcript_path=str(transcript_path))
 
         analysis_path = STORAGE / 'transcripts' / f'{job_id}.analysis.json'
@@ -93,6 +101,7 @@ def process_job(job_id, count=None, theme='professional'):
              f'|gemini-model={get_gemini_model()}|count={count}|analysis-v=2').encode('utf-8')
         ).hexdigest()
         _stage(job_id, 'analyzing', 'Analyzing transcript with Gemini')
+        gemini_started = time.perf_counter()
         cached_analysis = None
         if analysis_path.exists():
             try:
@@ -113,6 +122,7 @@ def process_job(job_id, count=None, theme='professional'):
                 'version': 2, 'model': get_gemini_model(),
                 'fingerprint': analysis_fingerprint, 'clips': selections,
             }, ensure_ascii=False, indent=2), encoding='utf-8')
+        timings['gemini_analysis'] = round(time.perf_counter() - gemini_started, 3)
         _stage(job_id, 'selecting_clips', 'Selecting independent highlights')
 
         manifest = {'clips': [], 'requested_count': count, 'source': source.name, 'theme': theme, 'version': 1}
@@ -122,15 +132,19 @@ def process_job(job_id, count=None, theme='professional'):
             clip_id = f'{idx + 1:02d}'
             output = STORAGE / 'clips' / f'{job_id}_{clip_id}.mp4'
             output.unlink(missing_ok=True)
+            render_started = time.perf_counter()
             render(source, result['words'], selection['start'], selection['end'], output, theme=theme,
                    progress_callback=lambda pct: db.heartbeat(job_id, progress=pct),
                    cancel_callback=lambda: bool(db.get(job_id).get('cancel_requested')))
             _check_cancel(job_id)
+            timings[f'render_clip_{idx + 1}'] = round(time.perf_counter() - render_started, 3)
             selection.update(id=clip_id, filename=output.name, theme=theme, crop_x=None)
             manifest['clips'].append(selection)
             save_manifest(job_id, manifest)
         db.update(job_id, status='completed', stage=f'{len(selections)} clips ready', progress=100,
                   worker_token=None, cancel_requested=0, error=None)
+        timings['total'] = round(time.perf_counter() - total_started, 3)
+        logger.info('Job %s performance timings: %s', job_id, timings)
     except JobCancelled:
         logger.info('Job %s cancelled', job_id)
     except Exception as exc:
